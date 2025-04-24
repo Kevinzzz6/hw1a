@@ -1,6 +1,4 @@
 import numpy as np
-# Remove sklearn dependency
-# from sklearn.preprocessing import StandardScaler
 
 class Logistic(object):
     def __init__(self, d=784, reg_param=0):
@@ -12,51 +10,28 @@ class Logistic(object):
          - Initialize the weight vector self.w
          - Initialize the  regularization parameter self.reg
         """
-        self.reg = reg_param
+        self.reg  = reg_param
         self.dim = [d+1, 1]
         self.w = np.zeros(self.dim)
-        # Replace StandardScaler with manual mean and std
-        self.feature_means = None
-        self.feature_stds = None
-        self.best_w = None
-        self.best_val_error = float('inf')
-        
-    def gen_features(self, X, fit=False):
+    def gen_features(self, X):
         """
         Inputs:
          - X: A numpy array of shape (N,d) containing the data.
-         - fit: Boolean indicating whether to fit the scaler
         Returns:
          - X_out an augmented training data to a feature vector e.g. [1, X].
         """
-        N, d = X.shape
-        
-        # Implement manual standardization
-        if fit:
-            self.feature_means = np.mean(X, axis=0)
-            self.feature_stds = np.std(X, axis=0) + 1e-10  # Avoid div by zero
-            X_scaled = (X - self.feature_means) / self.feature_stds
-        else:
-            if self.feature_means is not None and self.feature_stds is not None:
-                X_scaled = (X - self.feature_means) / self.feature_stds
-            else:
-                X_scaled = X  # No normalization if not fitted
-            
-        # Add bias term as first column
-        X_out = np.zeros((N, d+1))
+        N,d = X.shape
+        X_out= np.zeros((N,d+1))
+        # ================================================================ #
+        # YOUR CODE HERE:
+        # IMPLEMENT THE MATRIX X_out=[1, X]
+        # ================================================================ #
         X_out[:, 0] = 1
-        X_out[:, 1:] = X_scaled
-        
+        X_out[:, 1:] = X
+        # ================================================================ #
+        # END YOUR CODE HERE
+        # ================================================================ #
         return X_out
-        
-    def sigmoid(self, z):
-        """
-        Stable sigmoid function implementation to avoid overflow
-        """
-        # Clip values to avoid overflow
-        z_safe = np.clip(z, -20, 20)
-        return 1.0 / (1.0 + np.exp(-z_safe))
-        
     def loss_and_grad(self, X, y):
         """
         Inputs:
@@ -66,42 +41,56 @@ class Logistic(object):
         - loss: a real number represents the loss 
         - grad: a vector of the same dimensions as self.w containing the gradient of the loss with respect to self.w 
         """
-        N, d = X.shape
+        loss = 0.0
+        grad = np.zeros_like(self.w) 
+        N, d = X.shape 
         
-        # Use normalized features
+        # ================================================================ #
+        # YOUR CODE HERE:
+        # Calculate the loss function of the logistic regression
+        # save loss function in loss
+        # Calculate the gradient and save it as grad
+        # ================================================================ #
         X_features = self.gen_features(X)
         
-        # Calculate the stable logistic regression hypothesis
-        scores = X_features.dot(self.w)
-        h_w = self.sigmoid(scores)
+        # Ensure y is flattened
+        y = y.reshape(-1)
         
-        # Convert y to {0, 1} for binary cross-entropy
+        # Convert y from {-1,1} to {0,1} for binary cross-entropy calculation
         y_01 = (y + 1) / 2
         
-        # Calculate the binary cross-entropy loss - more numerically stable
-        epsilon = 1e-15  # Small constant to avoid log(0)
-        h_w_safe = np.clip(h_w, epsilon, 1 - epsilon)
+        # Calculate scores and apply sigmoid with numerical stability
+        scores = X_features.dot(self.w)
+        # Clip scores to avoid overflow
+        scores_clipped = np.clip(scores, -20, 20)
+        h_w = 1.0 / (1.0 + np.exp(-scores_clipped))
         
-        log_probs = y_01 * np.log(h_w_safe) + (1 - y_01) * np.log(1 - h_w_safe)
-        loss = -np.mean(log_probs)
+        # Calculate binary cross-entropy loss with numerical stability
+        epsilon = 1e-15  # Small value to avoid log(0)
+        h_w_safe = np.clip(h_w, epsilon, 1.0 - epsilon)
         
-        # Add L2 regularization if needed
+        # Binary cross-entropy loss
+        loss = -np.mean(y_01 * np.log(h_w_safe) + (1 - y_01) * np.log(1 - h_w_safe))
+        
+        # Add regularization if needed
         if self.reg > 0:
-            loss += (self.reg / 2) * np.sum(self.w[1:] ** 2)  # Don't regularize bias
+            loss += (self.reg / 2) * np.sum(self.w[1:] ** 2)  # Don't regularize the bias term
         
-        # Calculate the gradient with respect to weights
-        error = h_w - y_01
+        # Calculate the gradient (in original labels format)
+        error = h_w - y_01.reshape(-1, 1)
         grad = (1.0/N) * X_features.T.dot(error)
         
         # Add regularization to gradient if needed
         if self.reg > 0:
             reg_grad = np.zeros_like(self.w)
-            reg_grad[1:] = self.reg * self.w[1:]  # Don't regularize bias
+            reg_grad[1:] = self.reg * self.w[1:]  # Don't regularize the bias term
             grad += reg_grad
-            
+        # ================================================================ #
+        # END YOUR CODE HERE
+        # ================================================================ #
         return loss, grad
     
-    def train_LR(self, X, y, eta=1e-3, batch_size=1, num_iters=1000):
+    def train_LR(self, X, y, eta=1e-3, batch_size=1, num_iters=1000) :
         """
         Inputs:
          - X         -- numpy array of shape (N,d), features
@@ -112,94 +101,34 @@ class Logistic(object):
          - loss_history: vector containing the loss at each training iteration.
          - self.w: optimal weights 
         """
-        N, d = X.shape
         loss_history = []
+        N,d = X.shape
         
-        # Initialize parameters
+        # Reset weights
         self.w = np.zeros(self.dim)
-        velocity = np.zeros_like(self.w)  # For momentum
         
-        # Set hyperparameters
-        momentum = 0.9
-        beta1 = 0.9  # Adam parameters
-        beta2 = 0.999
-        epsilon = 1e-8
-        m = np.zeros_like(self.w)
-        v = np.zeros_like(self.w)
-        t = 0
+        # Make sure y is the right shape and format (-1 or 1)
+        y = y.flatten() if hasattr(y, 'flatten') else y
         
-        # Split data for validation-based early stopping
-        val_size = int(0.1 * N)
-        train_indices = np.random.choice(N, N-val_size, replace=False)
-        val_indices = np.setdiff1d(np.arange(N), train_indices)
-        
-        X_train, y_train = X[train_indices], y[train_indices]
-        X_val, y_val = X[val_indices], y[val_indices]
-        
-        # Normalize features
-        X_train_features = self.gen_features(X_train, fit=True)
-        X_val_features = self.gen_features(X_val)
-        
-        # Initialize best model tracking
-        best_val_error = float('inf')
-        best_w = None
-        patience = 5
-        patience_counter = 0
-        
-        for iter in range(num_iters):
+        for t in range(num_iters):
             # Sample batch
-            batch_indices = np.random.choice(X_train.shape[0], batch_size, replace=False)
-            X_batch = X_train[batch_indices]
-            y_batch = y_train[batch_indices]
+            indices = np.random.choice(N, batch_size, replace=False)
+            X_batch = X[indices]
+            y_batch = y[indices]
             
-            # Compute gradient
+            # Compute loss and gradient
             loss, grad = self.loss_and_grad(X_batch, y_batch)
             
-            # Adam optimizer update
-            t += 1
-            m = beta1 * m + (1 - beta1) * grad
-            v = beta2 * v + (1 - beta2) * (grad ** 2)
-            m_hat = m / (1 - beta1 ** t)
-            v_hat = v / (1 - beta2 ** t)
+            # Update weights using gradient descent
+            self.w -= eta * grad
             
-            # Update weights with adaptive learning rate
-            self.w -= eta * m_hat / (np.sqrt(v_hat) + epsilon)
-            
-            # Add loss to history
+            # Track loss
             loss_history.append(loss)
             
-            # Check validation error every 50 iterations
-            if iter % 50 == 0:
-                # Predict on validation set
-                scores_val = X_val_features.dot(self.w)
-                probs_val = self.sigmoid(scores_val)
-                y_val_pred = 2 * (probs_val >= 0.5).astype(int) - 1
-                val_error = np.mean(y_val_pred.flatten() != y_val)
+            # Print progress occasionally
+            if t % 1000 == 0:
+                print(f"Iteration {t}, Loss: {loss:.6f}")
                 
-                # Check if validation error improved
-                if val_error < best_val_error:
-                    best_val_error = val_error
-                    best_w = self.w.copy()
-                    patience_counter = 0
-                else:
-                    patience_counter += 1
-                
-                # Early stopping
-                if patience_counter >= patience:
-                    print(f"Early stopping at iteration {iter}")
-                    break
-                
-                # Adaptive learning rate decay
-                if iter > 0 and iter % 500 == 0:
-                    eta *= 0.5
-                    print(f"Reducing learning rate to {eta}")
-            
-        # Use best weights found during training
-        if best_w is not None:
-            self.w = best_w
-            self.best_w = best_w
-            self.best_val_error = best_val_error
-            
         return loss_history, self.w
     
     def predict(self, X):
@@ -210,72 +139,22 @@ class Logistic(object):
         - y_pred: Predicted labels for the data in X. y_pred is a 1-dimensional
           array of length N.
         """
-        # Normalize features
+        # ================================================================ #
+        # YOUR CODE HERE:
+        # PREDICT THE LABELS OF X 
+        # ================================================================ #
         X_features = self.gen_features(X)
-        
-        # Compute probabilities
         scores = X_features.dot(self.w)
-        probs = self.sigmoid(scores)
         
-        # Convert to {-1, 1} labels based on threshold
-        # Use a slightly different threshold if performance is better
-        thresh = 0.5  # Can be tuned
-        y_pred = 2 * (probs >= thresh).astype(int) - 1
+        # Use a numerically stable sigmoid function
+        prob = 1.0 / (1.0 + np.exp(-np.clip(scores, -20, 20)))
         
+        # Convert to the required format (1 for dress, -1 for shirt)
+        y_pred = 2 * (prob >= 0.5).astype(int) - 1
+        
+        # Ensure y_pred is a flattened array
+        y_pred = y_pred.flatten()
+        # ================================================================ #
+        # END YOUR CODE HERE
+        # ================================================================ #
         return y_pred
-        
-    def tune_hyperparameters(self, X, y, X_test, y_test):
-        """
-        Tune hyperparameters using a validation approach
-        """
-        # Split data for validation
-        N = X.shape[0]
-        val_size = int(0.1 * N)
-        train_indices = np.random.choice(N, N-val_size, replace=False)
-        val_indices = np.setdiff1d(np.arange(N), train_indices)
-        
-        X_train, y_train = X[train_indices], y[train_indices]
-        X_val, y_val = X[val_indices], y[val_indices]
-        
-        # Parameters to tune
-        learning_rates = [1e-2, 1e-3, 1e-4, 1e-5]
-        batch_sizes = [1, 32, 64, 128, 256]
-        reg_params = [0, 0.001, 0.01, 0.1, 1.0]
-        
-        best_error = float('inf')
-        best_params = {}
-        
-        print("Tuning hyperparameters...")
-        
-        # Grid search
-        for lr in learning_rates:
-            for bs in batch_sizes:
-                for reg in reg_params:
-                    # Create new model with current regularization
-                    model = Logistic(d=X.shape[1], reg_param=reg)
-                    
-                    # Train with current hyperparameters
-                    _, _ = model.train_LR(X_train, y_train, eta=lr, batch_size=bs, num_iters=2000)
-                    
-                    # Evaluate on validation set
-                    y_val_pred = model.predict(X_val)
-                    val_error = np.mean(y_val_pred != y_val)
-                    
-                    # Check if better than previous best
-                    if val_error < best_error:
-                        best_error = val_error
-                        best_params = {'lr': lr, 'batch_size': bs, 'reg': reg}
-                        
-        print(f"Best params: {best_params}, Val Error: {best_error:.4f}")
-        
-        # Train final model on full training data
-        self.reg = best_params['reg']
-        _, _ = self.train_LR(X, y, eta=best_params['lr'], 
-                           batch_size=best_params['batch_size'], num_iters=5000)
-        
-        # Test error
-        y_test_pred = self.predict(X_test)
-        test_error = np.mean(y_test_pred != y_test) * 100
-        print(f"Test error: {test_error:.2f}%")
-        
-        return best_params, test_error
